@@ -28,37 +28,59 @@ jobs:
     - name: Build macOS application
       run: |
         pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
+    
+    - name: Check dist folder content
+      run: |
+        echo "Contents of dist folder:"
+        ls -la dist/
+        echo "Contents of build folder:"
+        ls -la build/ || echo "Build folder not found"
         
     - name: Create DMG (macOS disk image)
       run: |
-        # Vérifier si l'application existe
-        if [ -d "dist/SearchPDF.app" ]; then
+        # Vérifier le contenu du dossier dist
+        echo "Checking dist folder contents before DMG creation"
+        ls -la dist/
+        
+        # Essayer de trouver l'application, quel que soit son nom
+        APP_NAME=$(find dist -name "*.app" -type d | head -n 1)
+        
+        if [ -n "$APP_NAME" ]; then
+          echo "Found application: $APP_NAME"
           # Créer un dossier pour l'application
           mkdir -p dist/dmg
-          mv dist/SearchPDF.app dist/dmg/
+          cp -r "$APP_NAME" dist/dmg/
           
-          # Créer un lien symbolique vers Applications pour faciliter l'installation
+          # Créer un lien symbolique vers Applications
           ln -s /Applications dist/dmg/
           
           # Créer l'image disque
           hdiutil create dist/SearchPDF.dmg -srcfolder dist/dmg -ov -volname "Search PDF"
         else
-          echo "Warning: dist/SearchPDF.app not found. Skipping DMG creation."
+          echo "Warning: No .app found in dist directory. Skipping DMG creation."
           mkdir -p dist/dmg
         fi
+        
+    - name: Upload macOS distribution folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-dist
+        path: dist/
+      continue-on-error: true
         
     - name: Upload macOS app
       uses: actions/upload-artifact@v4
       with:
         name: macos-app
         path: dist/*.app
+      continue-on-error: true
         
     - name: Upload macOS DMG
       uses: actions/upload-artifact@v4
       with:
         name: macos-dmg
         path: dist/*.dmg
-      if: hashFiles('dist/*.dmg') != ''
+      continue-on-error: true
 
   build-windows:
     runs-on: windows-latest
@@ -81,8 +103,14 @@ jobs:
       run: |
         pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
         
+    - name: Check dist folder content
+      run: |
+        echo "Contents of dist folder:"
+        dir dist
+        
     - name: Upload Windows executable
       uses: actions/upload-artifact@v4
       with:
         name: windows-exe
         path: dist/SearchPDF.exe
+      continue-on-error: true
