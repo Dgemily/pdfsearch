@@ -32,7 +32,7 @@ jobs:
       run: |
         # Créer un dossier pour l'application
         mkdir -p dist/dmg
-        mv dist/RecherchesPDF.app dist/dmg/
+        mv dist/SearchPDF.app dist/dmg/
         
         # Créer un lien symbolique vers Applications pour faciliter l'installation
         ln -s /Applications dist/dmg/
@@ -40,21 +40,25 @@ jobs:
         # Créer l'image disque
         hdiutil create dist/SearchPDF.dmg -srcfolder dist/dmg -ov -volname "Search PDF"
         
-    - name: Upload macOS artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload macOS app
+      uses: actions/upload-artifact@v4
       with:
         name: macos-app
-        path: |
-          dist/SearchPDF.app
-          dist/SearchPDF.dmg
+        path: dist/SearchPDF.app
+        
+    - name: Upload macOS DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-dmg
+        path: dist/SearchPDF.dmg
 
   build-windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         
@@ -68,8 +72,8 @@ jobs:
       run: |
         pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
         
-    - name: Upload Windows artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload Windows executable
+      uses: actions/upload-artifact@v4
       with:
         name: windows-exe
         path: dist/SearchPDF.exe
