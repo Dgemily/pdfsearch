@@ -1,0 +1,75 @@
+name: Build PDF Search App
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:  # Permet de déclencher manuellement le workflow
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+        
+    - name: Build macOS application
+      run: |
+        pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
+        
+    - name: Create DMG (macOS disk image)
+      run: |
+        # Créer un dossier pour l'application
+        mkdir -p dist/dmg
+        mv dist/RecherchesPDF.app dist/dmg/
+        
+        # Créer un lien symbolique vers Applications pour faciliter l'installation
+        ln -s /Applications dist/dmg/
+        
+        # Créer l'image disque
+        hdiutil create dist/SearchPDF.dmg -srcfolder dist/dmg -ov -volname "Search PDF"
+        
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-app
+        path: |
+          dist/SearchPDF.app
+          dist/SearchPDF.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+        
+    - name: Build Windows executable
+      run: |
+        pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
+        
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-exe
+        path: dist/SearchPDF.exe
