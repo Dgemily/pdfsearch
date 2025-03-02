@@ -1,4 +1,5 @@
-<img src="images/pdfsearch.png" alt="SearchPDF" style="float: left; margin-right: 10px;">
+![SearchPDF](images/pdfsearch.png)
+
 SearchPDF permet d’effectuer une recherche et d’identifier les fichiers pdfs contenants le terme de la recherche.
 
 La recherche n’est pas sensible à la casse et s’effectue dans le dossier sélectionné, ces sous-dossiers et dossiers compressés.
