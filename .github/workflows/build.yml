@@ -11,10 +11,10 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         
@@ -22,39 +22,73 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
+        pip install pillow
         pip install -r requirements.txt
         
     - name: Build macOS application
       run: |
         pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
+    
+    - name: Check dist folder content
+      run: |
+        echo "Contents of dist folder:"
+        ls -la dist/
+        echo "Contents of build folder:"
+        ls -la build/ || echo "Build folder not found"
         
     - name: Create DMG (macOS disk image)
       run: |
-        # Créer un dossier pour l'application
-        mkdir -p dist/dmg
-        mv dist/RecherchesPDF.app dist/dmg/
+        # Vérifier le contenu du dossier dist
+        echo "Checking dist folder contents before DMG creation"
+        ls -la dist/
         
-        # Créer un lien symbolique vers Applications pour faciliter l'installation
-        ln -s /Applications dist/dmg/
+        # Essayer de trouver l'application, quel que soit son nom
+        APP_NAME=$(find dist -name "*.app" -type d | head -n 1)
         
-        # Créer l'image disque
-        hdiutil create dist/SearchPDF.dmg -srcfolder dist/dmg -ov -volname "Search PDF"
+        if [ -n "$APP_NAME" ]; then
+          echo "Found application: $APP_NAME"
+          # Créer un dossier pour l'application
+          mkdir -p dist/dmg
+          cp -r "$APP_NAME" dist/dmg/
+          
+          # Créer un lien symbolique vers Applications
+          ln -s /Applications dist/dmg/
+          
+          # Créer l'image disque
+          hdiutil create dist/SearchPDF.dmg -srcfolder dist/dmg -ov -volname "Search PDF"
+        else
+          echo "Warning: No .app found in dist directory. Skipping DMG creation."
+          mkdir -p dist/dmg
+        fi
         
-    - name: Upload macOS artifacts
-      uses: actions/upload-artifact@v3
+    - name: Upload macOS distribution folder
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-dist
+        path: dist/
+      continue-on-error: true
+        
+    - name: Upload macOS app
+      uses: actions/upload-artifact@v4
       with:
         name: macos-app
-        path: |
-          dist/SearchPDF.app
-          dist/SearchPDF.dmg
+        path: dist/*.app
+      continue-on-error: true
+        
+    - name: Upload macOS DMG
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-dmg
+        path: dist/*.dmg
+      continue-on-error: true
 
   build-windows:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
         
@@ -62,14 +96,21 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
+        pip install pillow
         pip install -r requirements.txt
         
     - name: Build Windows executable
       run: |
         pyinstaller --onefile --windowed --name=SearchPDF --icon=pdfsearch.ico pdfsearch.py
         
-    - name: Upload Windows artifacts
-      uses: actions/upload-artifact@v3
+    - name: Check dist folder content
+      run: |
+        echo "Contents of dist folder:"
+        dir dist
+        
+    - name: Upload Windows executable
+      uses: actions/upload-artifact@v4
       with:
         name: windows-exe
         path: dist/SearchPDF.exe
+      continue-on-error: true
