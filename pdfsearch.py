@@ -10,9 +10,66 @@ import time
 import shutil
 import logging
 import sys
+import platform
 
 # Configuration pour supprimer les messages de PyPDF2
 logging.getLogger('PyPDF2').setLevel(logging.ERROR)
+
+
+# Fonctions utilitaires pour la compatibilité multi-plateforme
+def get_system_info():
+    system = platform.system()
+    is_macos = system == "Darwin"
+    is_windows = system == "Windows"
+    return {"system": system, "is_macos": is_macos, "is_windows": is_windows}
+
+
+def get_default_output_dir():
+    system_info = get_system_info()
+
+    if getattr(sys, 'frozen', False):
+        # Si c'est un exécutable créé par PyInstaller
+        if system_info["is_macos"]:
+            # Sur macOS, éviter d'utiliser le dossier de l'exécutable dans le bundle
+            # Utiliser plutôt le dossier Documents dans le répertoire personnel de l'utilisateur
+            return os.path.join(os.path.expanduser("~"), "Documents")
+        else:
+            # Sur Windows, utiliser le dossier où se trouve l'exécutable
+            return os.path.dirname(sys.executable)
+    else:
+        # Si c'est un script Python normal
+        return os.path.dirname(os.path.abspath(__file__))
+
+
+def create_safe_temp_dir():
+    # Créer un répertoire temporaire dans un emplacement accessible
+    if get_system_info()["is_macos"]:
+        # Sur macOS, utiliser un dossier temporaire dans le répertoire personnel
+        temp_base = os.path.join(os.path.expanduser("~"), "Library", "Caches")
+        os.makedirs(temp_base, exist_ok=True)
+        return tempfile.mkdtemp(dir=temp_base)
+    else:
+        # Sur d'autres systèmes, utiliser le comportement par défaut
+        return tempfile.mkdtemp()
+
+
+def normalize_path(path):
+    # Convertir les backslash en slash pour une meilleure compatibilité
+    return os.path.normpath(path).replace("\\", "/")
+
+
+def create_directory_with_permissions(directory_path):
+    try:
+        os.makedirs(directory_path, exist_ok=True)
+        # Vérifier que le dossier est accessible en écriture
+        test_file_path = os.path.join(directory_path, ".permission_test")
+        with open(test_file_path, 'w') as f:
+            f.write("test")
+        os.remove(test_file_path)
+        return True
+    except (PermissionError, OSError) as e:
+        print(f"Erreur de permission lors de la création du dossier {directory_path}: {str(e)}")
+        return False
 
 
 class PDFSearchApp(ctk.CTk):
@@ -29,15 +86,10 @@ class PDFSearchApp(ctk.CTk):
         ctk.set_appearance_mode("system")
         ctk.set_default_color_theme("blue")
 
-        # Déterminer le dossier par défaut pour les résultats
-        if getattr(sys, 'frozen', False):
-            # Si c'est un exécutable créé par PyInstaller
-            default_output_dir = os.path.dirname(sys.executable)
-        else:
-            # Si c'est un script Python normal
-            default_output_dir = os.path.dirname(os.path.abspath(__file__))
-
+        # Utiliser la fonction améliorée pour obtenir le répertoire par défaut
+        default_output_dir = get_default_output_dir()
         self.output_directory_path.set(default_output_dir)
+
         self.create_widgets()
 
     def create_widgets(self):
@@ -103,12 +155,14 @@ class PDFSearchApp(ctk.CTk):
     def browse_directory(self):
         directory = filedialog.askdirectory()
         if directory:
-            self.directory_path.set(directory)
+            # Normaliser le chemin pour une meilleure compatibilité
+            self.directory_path.set(normalize_path(directory))
 
     def browse_output_directory(self):
         directory = filedialog.askdirectory()
         if directory:
-            self.output_directory_path.set(directory)
+            # Normaliser le chemin pour une meilleure compatibilité
+            self.output_directory_path.set(normalize_path(directory))
 
     def log(self, message: str):
         self.log_text.insert("end", f"{message}\n")
@@ -120,6 +174,8 @@ class PDFSearchApp(ctk.CTk):
         search_text_lower = search_text.lower()
 
         try:
+            # Utiliser normalize_path pour assurer la compatibilité des chemins
+            pdf_path = normalize_path(pdf_path)
             with open(pdf_path, 'rb') as file:
                 reader = PyPDF2.PdfReader(file)
                 for page_num in range(len(reader.pages)):
@@ -136,11 +192,13 @@ class PDFSearchApp(ctk.CTk):
         all_matching_pages = []
         pdf_files = []
         matching_documents = {}  # Dictionnaire pour stocker les documents et leurs pages correspondantes
-        self.temp_dir = tempfile.mkdtemp()
+
+        # Utiliser create_safe_temp_dir pour éviter les problèmes de permissions
+        self.temp_dir = create_safe_temp_dir()
 
         for root, _, files in os.walk(directory):
             for file in files:
-                file_path = os.path.join(root, file)
+                file_path = normalize_path(os.path.join(root, file))
                 if file.lower().endswith('.pdf'):
                     pdf_files.append(file_path)
                 elif file.lower().endswith('.zip'):
@@ -148,8 +206,11 @@ class PDFSearchApp(ctk.CTk):
                         with zipfile.ZipFile(file_path, 'r') as zip_ref:
                             for zip_file in zip_ref.namelist():
                                 if zip_file.lower().endswith('.pdf'):
+                                    extraction_path = normalize_path(os.path.join(self.temp_dir, zip_file))
+                                    # Créer les dossiers parents si nécessaire pour les fichiers dans des sous-dossiers zip
+                                    os.makedirs(os.path.dirname(extraction_path), exist_ok=True)
                                     zip_ref.extract(zip_file, self.temp_dir)
-                                    pdf_files.append(os.path.join(self.temp_dir, zip_file))
+                                    pdf_files.append(extraction_path)
                     except Exception as e:
                         self.log(f"Erreur avec le fichier ZIP {file_path}: {str(e)}")
 
@@ -173,6 +234,9 @@ class PDFSearchApp(ctk.CTk):
         return matching_documents, all_matching_pages
 
     def create_output_pdf(self, matching_info, output_path: str, mode: str):
+        # Normaliser le chemin de sortie
+        output_path = normalize_path(output_path)
+
         # En mode "pages", on crée un seul PDF avec les pages spécifiques
         if mode == "pages":
             writer = PyPDF2.PdfWriter()
@@ -180,25 +244,40 @@ class PDFSearchApp(ctk.CTk):
             self.log(f"Mode 'pages': Extraction de {len(matching_pages)} pages spécifiques")
 
             for page_num, pdf_path in matching_pages:
-                with open(pdf_path, 'rb') as file:
-                    reader = PyPDF2.PdfReader(file)
-                    writer.add_page(reader.pages[page_num])
+                try:
+                    with open(pdf_path, 'rb') as file:
+                        reader = PyPDF2.PdfReader(file)
+                        writer.add_page(reader.pages[page_num])
+                except Exception as e:
+                    self.log(f"Erreur lors de l'ajout de la page {page_num} de {pdf_path}: {str(e)}")
+                    continue
+
+            # S'assurer que le dossier parent existe
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             # Écrire le PDF résultat
-            with open(output_path, 'wb') as output_file:
-                writer.write(output_file)
+            try:
+                with open(output_path, 'wb') as output_file:
+                    writer.write(output_file)
+            except Exception as e:
+                self.log(f"Erreur lors de l'écriture du PDF résultat: {str(e)}")
+                return 0
 
             return 1  # Un seul fichier créé
 
         else:  # mode == "documents"
             # En mode "documents", on copie les fichiers PDF entiers
             # Le output_path est désormais un dossier
-            output_dir = os.path.dirname(output_path)
+            output_dir = normalize_path(os.path.dirname(output_path))
             timestamp = time.strftime("%Y%m%d-%H%M%S")
 
             # Créer un sous-dossier spécifique pour cette recherche
-            result_subdir = os.path.join(output_dir, f"resultats_{timestamp}")
-            os.makedirs(result_subdir, exist_ok=True)
+            result_subdir = normalize_path(os.path.join(output_dir, f"resultats_{timestamp}"))
+
+            # Vérifier les permissions avant de créer le dossier
+            if not create_directory_with_permissions(result_subdir):
+                self.log(f"Erreur: impossible de créer le dossier {result_subdir}. Vérifiez les permissions.")
+                return 0
 
             matching_documents = matching_info[0]  # matching_documents dict
             self.log(f"Mode 'documents': Copie de {len(matching_documents)} documents entiers")
@@ -213,12 +292,12 @@ class PDFSearchApp(ctk.CTk):
 
                 processed_documents.add(pdf_path)
                 file_name = os.path.basename(pdf_path)
-                dest_path = os.path.join(result_subdir, file_name)
+                dest_path = normalize_path(os.path.join(result_subdir, file_name))
 
                 # Éviter les conflits de noms de fichiers
                 if os.path.exists(dest_path):
                     base_name, ext = os.path.splitext(file_name)
-                    dest_path = os.path.join(result_subdir, f"{base_name}_{copied_files}{ext}")
+                    dest_path = normalize_path(os.path.join(result_subdir, f"{base_name}_{copied_files}{ext}"))
 
                 self.log(f"Copie du document: {file_name}")
 
@@ -238,6 +317,12 @@ class PDFSearchApp(ctk.CTk):
 
         if not os.path.exists(self.directory_path.get()):
             messagebox.showerror("Erreur", "Le répertoire spécifié n'existe pas")
+            return
+
+        # Vérifier les permissions sur le dossier de sortie
+        if not create_directory_with_permissions(self.output_directory_path.get()):
+            messagebox.showerror("Erreur",
+                                 "Impossible d'écrire dans le dossier de résultats spécifié. Vérifiez les permissions.")
             return
 
         self.is_processing = True
@@ -269,8 +354,11 @@ class PDFSearchApp(ctk.CTk):
                 return
 
             # Utilisation du dossier de sortie spécifié par l'utilisateur
-            output_dir = os.path.join(self.output_directory_path.get(), "resultats")
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = normalize_path(os.path.join(self.output_directory_path.get(), "resultats"))
+            if not create_directory_with_permissions(output_dir):
+                self.log("Erreur: impossible de créer le dossier des résultats. Vérifiez les permissions.")
+                return
+
             timestamp = time.strftime("%Y%m%d-%H%M%S")
 
             # Mode d'extraction (pages ou documents)
@@ -280,10 +368,10 @@ class PDFSearchApp(ctk.CTk):
             # En mode pages, on crée un seul fichier PDF
             # En mode documents, on utilise le même chemin pour le dossier parent
             if mode == "pages":
-                output_path = os.path.join(output_dir, f"resultats_{timestamp}.pdf")
+                output_path = normalize_path(os.path.join(output_dir, f"resultats_{timestamp}.pdf"))
                 self.log(f"Génération du PDF avec {extraction_type}...")
             else:
-                output_path = os.path.join(output_dir, f"resultats_{timestamp}.pdf")
+                output_path = normalize_path(os.path.join(output_dir, f"resultats_{timestamp}.pdf"))
                 self.log(f"Copie des documents contenant le texte recherché...")
 
             # Créer le résultat (PDF unique ou copie de fichiers)
@@ -313,7 +401,7 @@ Recherche terminée !
                 """)
             else:
                 # Dans ce mode, on a copié des fichiers entiers
-                result_folder = os.path.join(output_dir, f"resultats_{timestamp}")
+                result_folder = normalize_path(os.path.join(output_dir, f"resultats_{timestamp}"))
                 self.log(f"""
 Recherche terminée !
 - Documents trouvés : {total_docs}
@@ -331,8 +419,13 @@ Recherche terminée !
         finally:
             self.is_processing = False
             self.search_button.configure(state="normal")
+
+            # Nettoyage sécurisé des fichiers temporaires
             if self.temp_dir and os.path.exists(self.temp_dir):
-                shutil.rmtree(self.temp_dir)
+                try:
+                    shutil.rmtree(self.temp_dir)
+                except Exception as e:
+                    self.log(f"Avertissement: impossible de supprimer les fichiers temporaires: {str(e)}")
 
 
 def main():
